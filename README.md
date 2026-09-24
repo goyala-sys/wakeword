@@ -74,7 +74,9 @@ listening service starts.
 4. Talk normally for 5 minutes *without* the phrase (read something aloud, have a phone call nearby) and count false detections.
 5. Lock the screen, wait 10 minutes, say the phrase. A notification should appear (and a ring, if enabled).
 
-`adb logcat -s WakeWordService` shows each detection and, on stop, the spotter duty cycle.
+`adb logcat -s WakeWordService` shows each detection, one line per utterance with its mic level
+(`utterance 1.9s: peak -44 dBFS, gain +22 dB, no detection`), and, on stop, the spotter duty cycle.
+Say the phrase at 1, 2 and 4 m and compare the peaks to see how quietly your phone hears you.
 
 ## Quick start (desktop)
 
@@ -107,6 +109,37 @@ CPU, single thread on this x86 container (a phone core is maybe 2–4× slower; 
 | Quiet room, ~10% of the time someone talks | 23% of the time | **0.9%** |
 | Busy room, ~30% talk, louder ambient noise | 54% | 1.4% |
 | No gate (spotter always on) | 100% | 2.0% |
+
+### Distance
+
+The results above use speech at close-talk level (about -17 dBFS). A phone across the room hears
+you 20-30 dB quieter *and* with more room echo. That combination is where this model fails:
+in real use on a Galaxy S24+ it worked up close and stopped working a few metres away.
+`eval/distance.py` simulates it (0.5 s RT60 living room, quiet-room noise floor):
+
+| Distance (simulated) | Recall, no gain | Recall, with AGC (default) |
+|---|---|---|
+| 0.3 m | 93% | 92% |
+| 1 m | 83% | 78% |
+| 2 m | 52% | 63% |
+| 4 m | 20% | 35% |
+| next room | 8% | 18% |
+
+60 positives (±5 points per cell); false alarms 0-1 in 3 min of speech in every cell, with or without AGC.
+
+- **The VAD gate is not the problem.** It opens on 100% of keywords at every distance. The spotter
+  runs but doesn't match.
+- **Quiet alone is mostly fine** (88% at the 4 m level with no echo). **Echo alone costs 15-35
+  points.** Together they collapse, because the model was trained on close-mic podcast speech.
+- **The AGC** (`core/Agc.kt`, `wakeword/agc.py`) is a digital gain stage in front of the VAD. It
+  scales the loudest recent 100 ms to -22 dBFS, up to +30 dB, and never attenuates. It roughly
+  doubles far-field recall and doesn't wake the spotter in a quiet room (duty cycle stays at 0%).
+  Pass `agc = null` to `WakeWordEngine.create` to turn it off.
+- **Gain can't remove echo.** For reliable across-the-room detection, the next step is a fixed-phrase
+  model trained with reverb augmentation (see "Why not Vosk / Porcupine / openWakeWord?").
+- The levels in the table are estimates. The Android log prints one line per utterance with its
+  real peak level before gain, e.g. `utterance 1.9s: peak -44 dBFS, gain +22 dB, no detection`.
+  Use those lines to calibrate `CONDITIONS` in `eval/distance.py` for a given phone.
 
 ### What the tuning experiments showed
 
@@ -145,6 +178,7 @@ python -m eval.evaluate ../data/hey_buddy --show-fa        # ~3 min on 4 cores
 python -m eval.evaluate ../data/hey_buddy --sweep          # boost x threshold grid
 python -m eval.evaluate ../data/hey_buddy --paths 8        # beam comparison
 python -m eval.evaluate ../data/hey_buddy --gates          # silero / energy / none
+python -m eval.distance ../data/hey_buddy                  # simulated distance, AGC off vs on
 python -m eval.idle_cost --minutes 10                      # quiet-room CPU
 ```
 

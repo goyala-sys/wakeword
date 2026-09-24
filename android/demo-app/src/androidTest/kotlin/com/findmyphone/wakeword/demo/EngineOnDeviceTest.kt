@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /**
  * Runs on a real Android runtime (CI emulator or a phone): real sherpa-onnx JNI, real
@@ -93,6 +94,24 @@ class EngineOnDeviceTest {
         try {
             val d = run(e, silence(1.0), wav("find_my_phone"), silence(1.5), wav("hey_buddy_a"), silence(1.5))
             assertEquals(listOf("FIND_MY_PHONE", "HEY_BUDDY"), d.map { it.keyword })
+        } finally {
+            e.release()
+        }
+    }
+
+    @Test fun agcRecoversQuietSpeech() {
+        // -32 dB (~-47 dBFS peak): a normal voice a few metres away. Missed without the AGC.
+        val quiet = wav("hey_buddy_a").let { s -> ShortArray(s.size) { (s[it] * 0.025f).roundToInt().toShort() } }
+        val e = engine("hey buddy")
+        val utterances = ArrayList<WakeWordEngine.Utterance>()
+        e.utteranceListener = { utterances += it }
+        try {
+            assertEquals(listOf("HEY_BUDDY"), run(e, silence(1.0), quiet, silence(1.5)).map { it.keyword })
+            assertEquals(1, utterances.size)
+            val u = utterances[0]
+            assertEquals(listOf("HEY_BUDDY"), u.detected)
+            assertTrue("peak ${u.peakDb}", u.peakDb in -52f..-42f)
+            assertTrue("gain ${u.gainDb}", u.gainDb > 12f)
         } finally {
             e.release()
         }

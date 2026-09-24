@@ -1,6 +1,6 @@
 """The always-on wake-word pipeline.
 
-    mic frames ──► pre-roll ring (0.5 s) ──► VAD gate ──► sherpa KWS stream ──► DetectionGate ──► callbacks
+    mic frames ──► AGC ──► pre-roll ring (0.5 s) ──► VAD gate ──► sherpa KWS stream ──► DetectionGate ──► callbacks
                                               │
                                               └─ no speech for `hangover_s`: pad, flush, drop stream (KWS idle)
 
@@ -17,6 +17,7 @@ from typing import Callable, Iterable
 import numpy as np
 
 from . import models
+from .agc import Agc
 from .keywords import Keyword, UnigramTokenizer, default_tokenizer
 from .vad import SAMPLE_RATE, AlwaysOn, EnergyGate, SileroGate
 
@@ -74,6 +75,7 @@ class EngineConfig:
     int8: bool = True                # int8 models: ~2x faster, what the phone should use
     max_active_paths: int = 4        # 8 raises recall in noise but ~10x the false alarms; see README
     num_trailing_blanks: int = 1
+    agc: bool = True                 # digital gain for distant (quiet) speech; see agc.py
 
 
 class WakeWordEngine:
@@ -110,6 +112,7 @@ class WakeWordEngine:
         else:
             raise ValueError(f"unknown gate {cfg.gate!r}")
 
+        self._agc = Agc() if cfg.agc else None
         self._det_gate = DetectionGate(cfg.cooldown_s)
         self._preroll: collections.deque[np.ndarray] = collections.deque()
         self._preroll_n = 0
@@ -131,6 +134,8 @@ class WakeWordEngine:
     def accept(self, samples: np.ndarray) -> list[Detection]:
         """Feed float32 mono 16 kHz samples in [-1, 1]. Any chunk size."""
         samples = np.asarray(samples, dtype=np.float32)
+        if self._agc is not None:
+            samples = self._agc.process(samples)
         self._clock_n += len(samples)
         self.stats.audio_s += len(samples) / SAMPLE_RATE
 

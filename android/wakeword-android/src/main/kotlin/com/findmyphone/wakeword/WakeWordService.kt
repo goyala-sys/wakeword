@@ -103,9 +103,14 @@ class WakeWordService : Service() {
             main.post { stopSelf() }
             return
         }
+        engine.utteranceListener = { u ->
+            Log.i(TAG, "utterance %.1fs: peak %.0f dBFS, gain %+.0f dB, %s".format(
+                u.durationS, u.peakDb, u.gainDb, if (u.detected.isEmpty()) "no detection" else "DETECTED ${u.detected.joinToString()}"))
+        }
         val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record = try {
-            // VOICE_RECOGNITION: no AGC/noise suppression on most devices — what the model expects.
+            // VOICE_RECOGNITION: no platform AGC/noise suppression on most devices (they distort what
+            // the model hears). Level is handled by the engine's own gain stage (core/Agc.kt) instead.
             AudioRecord(
                 MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, FRAME * 4),

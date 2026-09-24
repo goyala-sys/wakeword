@@ -43,7 +43,10 @@ engine.release()
 `inputSampleRate` handles 44.1/48 kHz input with an internal resampler. The model needs
 16 kHz, so recording at 16 kHz directly is cheaper if your clap detector can live with it.
 **Use `MediaRecorder.AudioSource.VOICE_RECOGNITION`** if you can. `MIC` often applies
-AGC and noise suppression, which hurt both detectors.
+AGC and noise suppression, which hurt both detectors. The engine applies its own gain
+internally (only to its copy of the audio), so distant, quiet speech still reaches the model.
+Your `buf` is not modified. Set `engine.utteranceListener` to log each utterance's mic level;
+see README "Distance".
 
 ### Mode B: let `WakeWordService` own the mic
 

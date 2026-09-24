@@ -79,3 +79,15 @@ def test_multiple_keywords():
     eng = WakeWordEngine(EngineConfig([Keyword("hey buddy"), Keyword("find my phone")]))
     x = np.concatenate([sil(1), wav("find_my_phone"), sil(1.5), wav("hey_buddy_a"), sil(1.5)])
     assert [d.keyword for d in eng.run(chunks(x))] == ["FIND_MY_PHONE", "HEY_BUDDY"]
+
+
+@pytest.mark.parametrize("name", ["hey_buddy_a", "hey_buddy_b"])
+def test_agc_recovers_quiet_speech(name):
+    # ~-50 dBFS: a normal voice several metres from the phone
+    x = np.concatenate([sil(1), wav(name) * 10 ** (-32 / 20), sil(1.5)]).astype(np.float32)
+    assert [d.keyword for d in make().run(chunks(x))] == ["HEY_BUDDY"]
+
+
+def test_agc_does_not_make_near_misses_fire():
+    x = np.concatenate([sil(0.5), wav("neg_my_buddy"), sil(1), wav("neg_hey_there"), sil(1)])
+    assert make().run(chunks(x * 10 ** (-32 / 20))) == []
