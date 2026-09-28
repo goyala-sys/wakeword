@@ -3,6 +3,7 @@
 #
 #   ./run_on_phone.sh                 # latest CI-built APK (needs `gh`), else builds locally
 #   ./run_on_phone.sh path/to.apk     # a specific APK
+#   ./run_on_phone.sh --davoice [apk] # the DaVoice comparison app instead (:davoice-demo)
 #   ANDROID_SERIAL=XYZ ./run_on_phone.sh   # pick a device when several are connected
 #
 # Needs: adb (Android platform-tools). Optional: gh (GitHub CLI, logged in) or an Android SDK.
@@ -11,6 +12,17 @@ cd "$(dirname "$0")"
 
 PKG=com.findmyphone.wakeword.demo
 ARTIFACT=wakeword-demo-apk
+MODULE=demo-app
+LOG_TAGS="WakeWordService:V"
+FETCH=./fetch_models.sh
+if [ "${1:-}" = "--davoice" ]; then
+  shift
+  PKG=com.findmyphone.wakeword.davoice
+  ARTIFACT=davoice-demo-apk
+  MODULE=davoice-demo
+  LOG_TAGS="DaVoiceDemo:V"
+  FETCH=./fetch_davoice.sh
+fi
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -48,19 +60,19 @@ if [ -z "$apk" ] && command -v gh >/dev/null && gh auth status >/dev/null 2>&1; 
     echo "downloading APK from CI run $run ($repo@$branch)"
     tmp=$(mktemp -d)
     gh run download "$run" --repo "$repo" -n "$ARTIFACT" -D "$tmp"
-    apk="$tmp/demo-app-debug.apk"
+    apk="$tmp/$MODULE-debug.apk"
   fi
 fi
 if [ -z "$apk" ]; then
   if [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ] || [ -f local.properties ]; then
     echo "building APK locally"
-    ./fetch_models.sh
-    ./gradlew :demo-app:assembleDebug --console=plain
-    apk=demo-app/build/outputs/apk/debug/demo-app-debug.apk
+    $FETCH
+    ./gradlew ":$MODULE:assembleDebug" --console=plain
+    apk=$MODULE/build/outputs/apk/debug/$MODULE-debug.apk
   else
     die "no APK. Either:
   - install GitHub CLI and run 'gh auth login' (downloads the CI-built APK), or
-  - download 'wakeword-demo-apk' from the repo's Actions tab and run: $0 path/to/demo-app-debug.apk, or
+  - download '$ARTIFACT' from the repo's Actions tab and run: $0 path/to/$MODULE-debug.apk, or
   - install the Android SDK (Android Studio) to build locally."
   fi
 fi
@@ -68,13 +80,25 @@ fi
 
 # ---- 3. install + launch -------------------------------------------------------
 echo "installing $apk"
-adb install -r -g "$apk"        # -g pre-grants microphone + notification permissions
+if ! out=$(adb install -r -g "$apk" 2>&1); then  # -g pre-grants microphone + notification permissions
+  echo "$out"
+  if echo "$out" | grep -q INSTALL_FAILED_UPDATE_INCOMPATIBLE; then
+    die "the installed $PKG was signed by a different build (each CI run has its own debug key).
+Uninstall it first (this deletes its saved settings), then rerun:  adb uninstall $PKG"
+  fi
+  exit 1
+fi
+echo "$out" | tail -1
 adb logcat -c
 adb shell am start -n "$PKG/.MainActivity" >/dev/null
 echo
-echo "App launched. Type a phrase, tap 'Start listening', then speak."
+if [ "$MODULE" = davoice-demo ]; then
+  echo "App launched. Pick a phrase, paste the DaVoice licence key, tap 'Start listening', then speak."
+else
+  echo "App launched. Type a phrase, tap 'Start listening', then speak."
+fi
 echo "Detections and errors stream below (Ctrl-C to stop watching; the app keeps running)."
 echo "---------------------------------------------------------------------------------"
 
 # ---- 4. watch --------------------------------------------------------------------
-adb logcat -v time -s WakeWordService:V AndroidRuntime:E
+adb logcat -v time -s $LOG_TAGS AndroidRuntime:E

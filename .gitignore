@@ -13,3 +13,6 @@ android/verify/libs/
 !android/wakeword-android/src/main/res/raw/*.wav
 android/wakeword-android/src/main/assets/wakeword/
 android/local-maven/
+# DaVoice SDK + models (fetch_davoice.sh) and custom models from DaVoice: licensed, not ours to publish
+android/davoice-demo/src/main/assets/
+android/davoice-demo/models/

@@ -78,6 +78,26 @@ listening service starts.
 (`utterance 1.9s: peak -44 dBFS, gain +22 dB, no detection`), and, on stop, the spotter duty cycle.
 Say the phrase at 1, 2 and 4 m and compare the peaks to see how quietly your phone hears you.
 
+## DaVoice comparison app
+
+`android/davoice-demo` is a second test app built on the [DaVoice](https://davoice.io) SDK
+([frymanofer/Android_Native_Wake_Word](https://github.com/frymanofer/Android_Native_Wake_Word),
+pinned and checksum-verified by `fetch_davoice.sh`). DaVoice uses **one trained model per fixed
+phrase**, the approach suggested above for far-field use, so it's here to compare against the
+open-vocabulary engine. It installs alongside the main demo ("Wake Word Test (DaVoice)").
+
+- **Licence:** the SDK won't start listening without a key from DaVoice (info@davoice.io). The
+  public demo key in their repo expired on 2025-09-30. Paste your key into the app, or set the
+  `DAVOICE_LICENSE` repo secret so CI bakes in a default. A baked-in key can be extracted from the
+  APK, so use an evaluation key.
+- **Phrases:** the build bundles DaVoice's demo models ("hey lookdeep", "need help now", "coca cola").
+  For your own phrase, ask DaVoice for its `.dm` file, drop it in `android/davoice-demo/models/`
+  (gitignored), and rebuild. It shows up in the phrase list.
+- **Run it:** `android/run_on_phone.sh --davoice` downloads CI's `davoice-demo-apk`, installs it and
+  streams the `DaVoiceDemo` log (licence result, each detection).
+- **Unverified:** this was built against DaVoice's documented API without a valid licence key, so
+  detection itself hasn't been seen working yet.
+
 ## Quick start (desktop)
 
 ```bash

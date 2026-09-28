@@ -13,7 +13,7 @@ pluginManagement {
 }
 dependencyResolutionManagement {
     repositories {
-        maven(rootDir.resolve("local-maven")) { content { includeGroup("com.k2fsa.sherpa.onnx") } } // fetch_models.sh
+        maven(rootDir.resolve("local-maven")) { content { includeGroup("com.k2fsa.sherpa.onnx"); includeGroup("com.davoice") } } // fetch_models.sh, fetch_davoice.sh
         google()
         maven("https://maven-central.storage-download.googleapis.com/maven2")
         mavenCentral()
@@ -23,3 +23,4 @@ rootProject.name = "wakeword"
 includeBuild("wakeword-core")
 include(":wakeword-android")
 include(":demo-app")
+include(":davoice-demo")
