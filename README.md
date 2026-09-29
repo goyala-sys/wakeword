@@ -94,9 +94,12 @@ engine listens at a time, since both need the mic. The detection log tags each h
 - **Phrases:** the build bundles DaVoice's demo models ("hey lookdeep", "need help now", "coca cola").
   For your own phrase, get its `.dm` file from DaVoice, drop it in `android/davoice-models/`
   (gitignored: DaVoice's licensed files), and rebuild.
-- **One ONNX Runtime:** both SDKs bundle ONNX Runtime and an APK can hold only one
-  `libonnxruntime.so`. `fetch_davoice.sh` removes DaVoice's copy (1.24, plus its Arm Compute
-  libraries), so DaVoice runs on sherpa-onnx's 1.28. The ORT C API is backward compatible.
+- **Two ONNX Runtimes:** both SDKs bundle ONNX Runtime as `libonnxruntime.so` (sherpa-onnx 1.28,
+  DaVoice 1.24). They can't share one: each exports versioned symbols (`OrtGetApiBase@VERS_1.28.2`),
+  and DaVoice failed to load against sherpa's copy with `cannot locate symbol "OrtGetApiBase"`. So
+  `fetch_models.sh` renames sherpa's copy to `libonnxruntime_sherpa.so` with `patchelf` (brew / apt)
+  and re-points sherpa's own libraries at it. DaVoice's AAR is used exactly as published. The
+  version tags keep the two copies apart in one process.
 - **Signing:** CI signs with the committed `android/debug.keystore`, so new builds install over old
   ones.
 - DaVoice ships arm64 native code only, so on 32-bit phones the DaVoice engine shows a load error.
@@ -212,7 +215,7 @@ The tests use committed WAV fixtures for that reason.
 ```bash
 cd android/wakeword-core && gradle test                    # JVM, no Android SDK needed
 cd android/verify && ./prepare.sh && gradle compileKotlin  # type-check the Android module
-cd android && ./fetch_models.sh && ./gradlew :demo-app:assembleDebug   # needs the Android SDK
+cd android && ./fetch_models.sh && ./fetch_davoice.sh && ./gradlew :demo-app:assembleDebug   # Android SDK + patchelf
 ```
 
 ## Design notes

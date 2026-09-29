@@ -18,8 +18,24 @@ curl -fL --retry 3 -o "$A/silero_vad.onnx" "$REL/asr-models/silero_vad.onnx"
 cp ../shared/kws_vocab.tsv "$A/kws_vocab.tsv"
 # sherpa-onnx isn't on Maven Central; install its release AAR into a local Maven repo so both
 # library and app modules can depend on it by coordinates (AGP rejects raw .aar files in libraries).
-[ -f "$MVN/sherpa-onnx-$SHERPA_VERSION.aar" ] || \
-  curl -fL --retry 3 -o "$MVN/sherpa-onnx-$SHERPA_VERSION.aar" "$REL/v$SHERPA_VERSION/sherpa-onnx-$SHERPA_VERSION.aar"
+[ -f "$MVN/upstream.aar" ] || \
+  curl -fL --retry 3 -o "$MVN/upstream.aar" "$REL/v$SHERPA_VERSION/sherpa-onnx-$SHERPA_VERSION.aar"
+# The demo app also carries the DaVoice SDK, which bundles its own ONNX Runtime (1.24) as
+# libonnxruntime.so. The two can't share one: each exports versioned symbols (OrtGetApiBase@VERS_x)
+# and each caller links to its exact version. So sherpa's copy is renamed to
+# libonnxruntime_sherpa.so and sherpa's libraries are re-pointed at it (needs patchelf).
+if [ ! -f "$MVN/sherpa-onnx-$SHERPA_VERSION.aar" ]; then
+  command -v patchelf >/dev/null || { echo "patchelf not found (brew install patchelf / apt install patchelf)" >&2; exit 1; }
+  work=$(mktemp -d)
+  (cd "$work" && unzip -q "$OLDPWD/$MVN/upstream.aar")
+  for d in "$work"/jni/*/; do
+    mv "$d/libonnxruntime.so" "$d/libonnxruntime_sherpa.so"
+    patchelf --set-soname libonnxruntime_sherpa.so "$d/libonnxruntime_sherpa.so"
+    for so in "$d"/libsherpa-onnx-*.so; do patchelf --replace-needed libonnxruntime.so libonnxruntime_sherpa.so "$so"; done
+  done
+  (cd "$work" && zip -q -r -X "$OLDPWD/$MVN/sherpa-onnx-$SHERPA_VERSION.aar" .)
+  rm -rf "$work"
+fi
 cat > "$MVN/sherpa-onnx-$SHERPA_VERSION.pom" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">

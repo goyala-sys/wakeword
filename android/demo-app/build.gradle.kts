@@ -47,7 +47,7 @@ android {
 dependencies {
     implementation(project(":wakeword-android"))
     implementation("com.findmyphone.wakeword:wakeword-core:0.1.0")
-    // DaVoice SDK, repackaged by ../fetch_davoice.sh to share sherpa-onnx's libonnxruntime.so.
+    // DaVoice SDK (its own ONNX Runtime 1.24; sherpa's is renamed by ../fetch_models.sh so both fit).
     implementation("com.davoice:keyworddetection:1.0.0")
     implementation("ai.picovoice:android-voice-processor:1.0.2") // declared by DaVoice's own wrapper
 

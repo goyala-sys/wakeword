@@ -2,10 +2,7 @@
 # Download the DaVoice wake-word SDK (AAR) and its demo models for :demo-app's DaVoice engine.
 # Pinned to one commit of github.com/frymanofer/Android_Native_Wake_Word and checksum-verified.
 # Custom models from DaVoice (*.dm) go in davoice-models/; they're copied into the APK too.
-#
-# Both SDKs bundle ONNX Runtime and an APK can hold only one libonnxruntime.so. sherpa-onnx's
-# (1.28) is newer than DaVoice's (1.24) and the ORT C API is backward compatible, so DaVoice's
-# copy -- plus the Arm Compute libraries only its custom build uses -- is removed from the AAR.
+# The AAR is used as published; fetch_models.sh renames sherpa-onnx's ONNX Runtime so both fit.
 set -euo pipefail
 cd "$(dirname "$0")"
 REV=3691ef302767dc4054ffcff075fca816083c8345
@@ -21,10 +18,8 @@ fetch() { # url dest sha256
   echo "$3  $2" | shasum -a 256 -c --status || { echo "checksum mismatch: $2" >&2; rm -f "$2"; exit 1; }
 }
 
-fetch "$RAW/libs/com/davoice/keyworddetection/1.0.0/keyworddetection-1.0.0.aar" "$MVN/upstream.aar" \
+fetch "$RAW/libs/com/davoice/keyworddetection/1.0.0/keyworddetection-1.0.0.aar" "$MVN/keyworddetection-1.0.0.aar" \
   ac97d17ffe4ac5b175c7c097ff28bcd0bdb28a6e9241e835518747005dda8dc9
-cp "$MVN/upstream.aar" "$MVN/keyworddetection-1.0.0.aar"
-zip -q -d "$MVN/keyworddetection-1.0.0.aar" 'jni/*/libonnxruntime.so' 'jni/*/libarm_compute*.so'
 cat > "$MVN/keyworddetection-1.0.0.pom" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
