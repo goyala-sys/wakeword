@@ -3,7 +3,6 @@
 #
 #   ./run_on_phone.sh                 # latest CI-built APK (needs `gh`), else builds locally
 #   ./run_on_phone.sh path/to.apk     # a specific APK
-#   ./run_on_phone.sh --davoice [apk] # the DaVoice comparison app instead (:davoice-demo)
 #   ANDROID_SERIAL=XYZ ./run_on_phone.sh   # pick a device when several are connected
 #
 # Needs: adb (Android platform-tools). Optional: gh (GitHub CLI, logged in) or an Android SDK.
@@ -13,16 +12,6 @@ cd "$(dirname "$0")"
 PKG=com.findmyphone.wakeword.demo
 ARTIFACT=wakeword-demo-apk
 MODULE=demo-app
-LOG_TAGS="WakeWordService:V"
-FETCH=./fetch_models.sh
-if [ "${1:-}" = "--davoice" ]; then
-  shift
-  PKG=com.findmyphone.wakeword.davoice
-  ARTIFACT=davoice-demo-apk
-  MODULE=davoice-demo
-  LOG_TAGS="DaVoiceDemo:V"
-  FETCH=./fetch_davoice.sh
-fi
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -66,7 +55,8 @@ fi
 if [ -z "$apk" ]; then
   if [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ] || [ -f local.properties ]; then
     echo "building APK locally"
-    $FETCH
+    ./fetch_models.sh
+    ./fetch_davoice.sh
     ./gradlew ":$MODULE:assembleDebug" --console=plain
     apk=$MODULE/build/outputs/apk/debug/$MODULE-debug.apk
   else
@@ -92,13 +82,9 @@ echo "$out" | tail -1
 adb logcat -c
 adb shell am start -n "$PKG/.MainActivity" >/dev/null
 echo
-if [ "$MODULE" = davoice-demo ]; then
-  echo "App launched. Pick a phrase, paste the DaVoice licence key, tap 'Start listening', then speak."
-else
-  echo "App launched. Type a phrase, tap 'Start listening', then speak."
-fi
+echo "App launched. Pick an engine and a phrase, tap 'Start listening', then speak."
 echo "Detections and errors stream below (Ctrl-C to stop watching; the app keeps running)."
 echo "---------------------------------------------------------------------------------"
 
 # ---- 4. watch --------------------------------------------------------------------
-adb logcat -v time -s $LOG_TAGS AndroidRuntime:E
+adb logcat -v time -s WakeWordService:V DaVoiceDemo:V AndroidRuntime:E

@@ -1,6 +1,5 @@
-package com.findmyphone.wakeword.davoice
+package com.findmyphone.wakeword.demo
 
-import android.app.Application
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -13,12 +12,13 @@ import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
 /**
- * Owns the DaVoice detector for the whole process, so listening (and the ring) keeps going
- * with the screen off or the activity closed. The SDK records the mic itself and runs its
- * own foreground service; this only follows the documented call order from DaVoice's
+ * The DaVoice SDK as a second engine for side-by-side QA: fixed-phrase models trained by
+ * DaVoice (.dm files in assets, from ../fetch_davoice.sh), a licence key, and its own mic
+ * capture and foreground service. Follows the call order documented in DaVoice's
  * WakeWordDetectionAPI: create + initialize -> startForegroundService -> licence -> startListening.
+ * Lives in [DemoApp] so it keeps listening with the screen off.
  */
-class DaVoiceApp : Application() {
+class DaVoiceEngine(private val context: Context) {
     sealed interface State {
         data object Stopped : State
         data object Starting : State
@@ -26,38 +26,29 @@ class DaVoiceApp : Application() {
         data class Error(val message: String) : State
     }
 
-    data class Event(val model: String, val wallTimeMs: Long)
-
-    lateinit var ringer: Ringer
-        private set
     @Volatile var state: State = State.Stopped
         private set
     val stateListeners = CopyOnWriteArraySet<(State) -> Unit>()
-    val detectionListeners = CopyOnWriteArraySet<(Event) -> Unit>()
-    private val recent = ArrayDeque<Event>()
-    val recentDetections: List<Event> get() = synchronized(recent) { recent.toList() }
+    val detectionListeners = CopyOnWriteArraySet<(String) -> Unit>()
 
     private val worker = Executors.newSingleThreadExecutor() // SDK calls off the main thread, in order
     private val main = Handler(Looper.getMainLooper())
     private var detector: KeyWordsDetection? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        ringer = Ringer(this)
-    }
+    val isActive get() = state is State.Listening || state is State.Starting
 
     /** Model files bundled in the APK, minus the shared base layer. */
     fun models(): List<String> =
-        (assets.list("") ?: emptyArray()).filter { it.endsWith(".dm") && it != BASE_LAYER }.sorted()
+        (context.assets.list("") ?: emptyArray()).filter { it.endsWith(".dm") && it != BASE_LAYER }.sorted()
 
     fun start(model: String, threshold: Float, licence: String) = worker.execute {
         stopDetector()
         publish(State.Starting)
         val d = try {
-            KeyWordsDetection(this, model, threshold, BUFFER_CNT).also { d ->
+            KeyWordsDetection(context, model, threshold, BUFFER_CNT).also { d ->
                 d.initialize { detected, fired -> if (detected) main.post { onDetected(fired ?: model) } }
             }
-        } catch (e: Throwable) {
+        } catch (e: Throwable) { // incl. UnsatisfiedLinkError on ABIs the AAR doesn't ship (armeabi-v7a)
             Log.e(TAG, "model load failed: $model", e)
             publish(State.Error("couldn't load $model: ${e.message ?: e.javaClass.simpleName}"))
             return@execute
@@ -99,13 +90,7 @@ class DaVoiceApp : Application() {
 
     private fun onDetected(model: String) {
         Log.i(TAG, "wake word ${label(model)} ($model)")
-        val e = Event(model, System.currentTimeMillis())
-        synchronized(recent) {
-            recent.addLast(e)
-            while (recent.size > MAX_RECENT) recent.removeFirst()
-        }
-        if (prefs(this).getBoolean(PREF_RING, false)) ringer.ring()
-        for (l in detectionListeners) l(e)
+        for (l in detectionListeners) l(model)
     }
 
     private fun publish(s: State) {
@@ -124,12 +109,9 @@ class DaVoiceApp : Application() {
         const val BASE_LAYER = "layer1.dm"
         /** frames aggregated per decision; 4 in every DaVoice example */
         const val BUFFER_CNT = 4
-        const val MAX_RECENT = 50
-        const val PREF_RING = "ring"
-        const val PREF_MODEL = "model"
-        const val PREF_SENSITIVE = "sensitive"
-        const val PREF_LICENCE = "licence"
-        fun prefs(c: Context) = c.getSharedPreferences("davoice", Context.MODE_PRIVATE)
+        /** DaVoice's examples all use 0.99; lower = easier to trigger. Tune once real tests are in. */
+        const val NORMAL = 0.99f
+        const val SENSITIVE = 0.95f
 
         /** "coca_cola_model_28_05052025.dm" -> "coca cola" */
         fun label(model: String) = model.removeSuffix(".dm").replace(Regex("_model.*$"), "").replace('_', ' ')

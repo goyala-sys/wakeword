@@ -78,25 +78,29 @@ listening service starts.
 (`utterance 1.9s: peak -44 dBFS, gain +22 dB, no detection`), and, on stop, the spotter duty cycle.
 Say the phrase at 1, 2 and 4 m and compare the peaks to see how quietly your phone hears you.
 
-## DaVoice comparison app
+## DaVoice engine (in the same demo app)
 
-`android/davoice-demo` is a second test app built on the [DaVoice](https://davoice.io) SDK
-([frymanofer/Android_Native_Wake_Word](https://github.com/frymanofer/Android_Native_Wake_Word),
-pinned and checksum-verified by `fetch_davoice.sh`). DaVoice uses **one trained model per fixed
-phrase**, the approach suggested above for far-field use, so it's here to compare against the
-open-vocabulary engine. It installs alongside the main demo ("Wake Word Test (DaVoice)").
+The demo app has an **Engine** switch: *Open vocabulary* (this repo's engine) or *DaVoice*
+([davoice.io](https://davoice.io), SDK from
+[frymanofer/Android_Native_Wake_Word](https://github.com/frymanofer/Android_Native_Wake_Word), pinned
+and checksum-verified by `fetch_davoice.sh`). DaVoice uses **one trained model per fixed phrase**, the
+approach suggested above for far-field use, so QA can compare both engines on one phone. Only one
+engine listens at a time, since both need the mic. The detection log tags each hit `OV` or `DV`.
 
-- **Licence:** the SDK won't start listening without a key from DaVoice (info@davoice.io). The
-  public demo key in their repo expired on 2025-09-30. Paste your key into the app, or set the
-  `DAVOICE_LICENSE` repo secret so CI bakes in a default. A baked-in key can be extracted from the
-  APK, so use an evaluation key.
+- **Licence:** DaVoice won't listen without a key from DaVoice (info@davoice.io). Paste it into the
+  app, or set the `DAVOICE_LICENSE` repo secret so CI bakes in a default. A baked-in key can be
+  extracted from the APK, so use an evaluation key. Keys encode their expiry: the base64 part
+  before `-` is a Unix time in ms.
 - **Phrases:** the build bundles DaVoice's demo models ("hey lookdeep", "need help now", "coca cola").
-  For your own phrase, ask DaVoice for its `.dm` file, drop it in `android/davoice-demo/models/`
-  (gitignored), and rebuild. It shows up in the phrase list.
-- **Run it:** `android/run_on_phone.sh --davoice` downloads CI's `davoice-demo-apk`, installs it and
-  streams the `DaVoiceDemo` log (licence result, each detection).
-- **Unverified:** this was built against DaVoice's documented API without a valid licence key, so
-  detection itself hasn't been seen working yet.
+  For your own phrase, get its `.dm` file from DaVoice, drop it in `android/davoice-models/`
+  (gitignored: DaVoice's licensed files), and rebuild.
+- **One ONNX Runtime:** both SDKs bundle ONNX Runtime and an APK can hold only one
+  `libonnxruntime.so`. `fetch_davoice.sh` removes DaVoice's copy (1.24, plus its Arm Compute
+  libraries), so DaVoice runs on sherpa-onnx's 1.28. The ORT C API is backward compatible.
+- **Signing:** CI signs with the committed `android/debug.keystore`, so new builds install over old
+  ones.
+- DaVoice ships arm64 native code only, so on 32-bit phones the DaVoice engine shows a load error.
+  The open-vocabulary engine still works there.
 
 ## Quick start (desktop)
 

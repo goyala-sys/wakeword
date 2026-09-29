@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Download the DaVoice wake-word SDK (AAR) and its demo models for :davoice-demo.
+# Download the DaVoice wake-word SDK (AAR) and its demo models for :demo-app's DaVoice engine.
 # Pinned to one commit of github.com/frymanofer/Android_Native_Wake_Word and checksum-verified.
-# Custom models from DaVoice (*.dm) go in davoice-demo/models/; they're copied into the APK too.
+# Custom models from DaVoice (*.dm) go in davoice-models/; they're copied into the APK too.
+#
+# Both SDKs bundle ONNX Runtime and an APK can hold only one libonnxruntime.so. sherpa-onnx's
+# (1.28) is newer than DaVoice's (1.24) and the ORT C API is backward compatible, so DaVoice's
+# copy -- plus the Arm Compute libraries only its custom build uses -- is removed from the AAR.
 set -euo pipefail
 cd "$(dirname "$0")"
 REV=3691ef302767dc4054ffcff075fca816083c8345
 RAW=https://raw.githubusercontent.com/frymanofer/Android_Native_Wake_Word/$REV/android
 MVN=local-maven/com/davoice/keyworddetection/1.0.0
-A=davoice-demo/src/main/assets
+A=demo-app/src/main/assets
 mkdir -p "$MVN" "$A"
 
 fetch() { # url dest sha256
@@ -17,8 +21,10 @@ fetch() { # url dest sha256
   echo "$3  $2" | shasum -a 256 -c --status || { echo "checksum mismatch: $2" >&2; rm -f "$2"; exit 1; }
 }
 
-fetch "$RAW/libs/com/davoice/keyworddetection/1.0.0/keyworddetection-1.0.0.aar" "$MVN/keyworddetection-1.0.0.aar" \
+fetch "$RAW/libs/com/davoice/keyworddetection/1.0.0/keyworddetection-1.0.0.aar" "$MVN/upstream.aar" \
   ac97d17ffe4ac5b175c7c097ff28bcd0bdb28a6e9241e835518747005dda8dc9
+cp "$MVN/upstream.aar" "$MVN/keyworddetection-1.0.0.aar"
+zip -q -d "$MVN/keyworddetection-1.0.0.aar" 'jni/*/libonnxruntime.so' 'jni/*/libarm_compute*.so'
 cat > "$MVN/keyworddetection-1.0.0.pom" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -38,5 +44,5 @@ fetch "$RAW/src/main/assets/coca_cola_model_28_05052025.dm" "$A/coca_cola_model_
   6ff74be31fc8027e4af986d9bc21eb4e327fe10aaaab2ae6bf40cd9b4100d619
 
 shopt -s nullglob
-for m in davoice-demo/models/*.dm; do cp "$m" "$A/"; echo "custom model: $(basename "$m")"; done
+for m in davoice-models/*.dm; do cp "$m" "$A/"; echo "custom model: $(basename "$m")"; done
 du -sh "$MVN" "$A"
