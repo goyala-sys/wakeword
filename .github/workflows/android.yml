@@ -18,7 +18,7 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - name: Fetch models + sherpa-onnx AAR + DaVoice SDK
-        run: sudo apt-get install -y -q patchelf && android/fetch_models.sh && android/fetch_davoice.sh
+        run: sudo apt-get install -y -q patchelf && android/fetch_models.sh && android/fetch_davoice.sh && android/fetch_livekit.sh
       - name: Core unit tests (JVM)
         working-directory: android/wakeword-core
         run: ../gradlew test --console=plain
@@ -51,7 +51,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Fetch models + sherpa-onnx AAR + DaVoice SDK
-        run: sudo apt-get install -y -q patchelf && android/fetch_models.sh && android/fetch_davoice.sh
+        run: sudo apt-get install -y -q patchelf && android/fetch_models.sh && android/fetch_davoice.sh && android/fetch_livekit.sh
       - name: Instrumented tests on API 34 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:

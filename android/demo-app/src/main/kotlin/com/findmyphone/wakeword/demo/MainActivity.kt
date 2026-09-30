@@ -37,6 +37,7 @@ import java.util.Date
  * One-screen QA app with two engines, one at a time (both need the mic):
  *  - Open vocabulary: type any phrase; live mic level, VAD dot and detections.
  *  - DaVoice: pick a trained model bundled in the APK, paste the licence key.
+ *  - LiveKit: pick a livekit-wakeword classifier bundled in the APK; live score shows how close a miss was.
  * Every detection flashes green and lands in one log, tagged by engine.
  * Built in code with platform widgets: no XML, no AndroidX.
  */
@@ -53,8 +54,16 @@ class MainActivity : Activity() {
     private lateinit var engineGroup: RadioGroup
     private lateinit var openVocabRadio: RadioButton
     private lateinit var davoiceRadio: RadioButton
+    private lateinit var livekitRadio: RadioButton
     private lateinit var openVocabSection: LinearLayout
     private lateinit var davoiceSection: LinearLayout
+    private lateinit var livekitSection: LinearLayout
+    private lateinit var lkModelGroup: RadioGroup
+    private lateinit var lkScore: TextView
+    private lateinit var lkBar: ProgressBar
+    private lateinit var cpuBar: ProgressBar
+    private lateinit var statsText: TextView
+    private lateinit var sampler: StatsSampler
     private lateinit var keyword: EditText
     private lateinit var hint: TextView
     private lateinit var modelGroup: RadioGroup
@@ -74,13 +83,36 @@ class MainActivity : Activity() {
     private var flash: ValueAnimator? = null
     private var sessionCount = 0
     private val modelIds = HashMap<Int, String>()
+    private val lkModelIds = HashMap<Int, String>()
 
-    private val engine get() = if (davoiceRadio.isChecked) Engine.DAVOICE else Engine.OPEN_VOCAB
+    private val engine get() = when {
+        davoiceRadio.isChecked -> Engine.DAVOICE
+        livekitRadio.isChecked -> Engine.LIVEKIT
+        else -> Engine.OPEN_VOCAB
+    }
 
     private val onDetect = WakeWord.Listener { d -> showDetection(d.keyword.replace('_', ' ').lowercase()) }
     private val onState = WakeWord.StateListener { render() }
     private val onDaVoiceState: (DaVoiceEngine.State) -> Unit = { render() }
     private val onDaVoiceDetect: (String) -> Unit = { showDetection(DaVoiceEngine.label(it)) }
+    private val onLkState: (LiveKitEngine.State) -> Unit = { render() }
+    private val onLkDetect: (String) -> Unit = { showDetection(LiveKitEngine.label(it)) }
+    private val onLkScore: (LiveKitEngine.Score) -> Unit = {
+        lkScore.text = "score %.2f   peak %.2f   %.0f ms/pass".format(it.score, it.peak, it.inferMs)
+        lkBar.progress = (it.score * 100).toInt().coerceIn(0, 100)
+        level.progress = ((it.levelDb + 70f) / 70f * 100f).toInt().coerceIn(0, 100)
+        levelText.text = "%.0f dB".format(it.levelDb)
+        speechDot.setTextColor(green)
+        speechDot.text = "●  no gate — model runs on all audio, every 80 ms"
+    }
+    private val onStats: (StatsSampler.Sample) -> Unit = { s ->
+        cpuBar.progress = s.cpuPct.toInt().coerceIn(0, 100)
+        val listening = if (running()) "" else "  (idle)"
+        statsText.text = "CPU     %.0f%% of one core%s\nMemory  %.0f MB\nBattery %d%%  %.1f °C\nCurrent %+.0f mA %s".format(
+            s.cpuPct, listening, s.pssMb, s.batteryPct, s.tempC, s.currentMa,
+            if (s.plugged) "(plugged in: this is charging current, unplug to see drain)" else "(negative = draining)",
+        )
+    }
     private val onMeter = WakeWord.MeterListener { m ->
         level.progress = ((m.levelDb + 70f) / 70f * 100f).toInt().coerceIn(0, 100)
         levelText.text = "%.0f dB".format(m.levelDb)
@@ -91,15 +123,21 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
+        sampler = StatsSampler(this, onStats)
         setContentView(buildUi())
         val p = DemoApp.prefs(this)
         keyword.setText(p.getString(DemoApp.PREF_KEYWORD, "hey buddy"))
         val savedModel = p.getString(DemoApp.PREF_DV_MODEL, null)
         (modelIds.entries.firstOrNull { it.value == savedModel }?.key ?: modelIds.keys.firstOrNull())?.let { modelGroup.check(it) }
+        val savedLk = p.getString(DemoApp.PREF_LK_MODEL, null)
+        (lkModelIds.entries.firstOrNull { it.value == savedLk }?.key ?: lkModelIds.keys.firstOrNull())?.let { lkModelGroup.check(it) }
         licence.setText(p.getString(DemoApp.PREF_DV_LICENCE, null) ?: BuildConfig.DAVOICE_LICENSE)
         if (p.getBoolean(DemoApp.PREF_SENSITIVE, false)) sensitive.isChecked = true else normal.isChecked = true
-        if (p.getString(DemoApp.PREF_ENGINE, null) == Engine.DAVOICE.name) davoiceRadio.isChecked = true
-        else openVocabRadio.isChecked = true
+        when (p.getString(DemoApp.PREF_ENGINE, null)) {
+            Engine.DAVOICE.name -> davoiceRadio.isChecked = true
+            Engine.LIVEKIT.name -> livekitRadio.isChecked = true
+            else -> openVocabRadio.isChecked = true
+        }
         engineGroup.setOnCheckedChangeListener { _, _ ->
             p.edit().putString(DemoApp.PREF_ENGINE, engine.name).apply()
             render()
@@ -117,6 +155,10 @@ class MainActivity : Activity() {
         WakeWord.addMeterListener(onMeter)
         app.davoice.stateListeners.add(onDaVoiceState)
         app.davoice.detectionListeners.add(onDaVoiceDetect)
+        app.livekit.stateListeners.add(onLkState)
+        app.livekit.detectionListeners.add(onLkDetect)
+        app.livekit.scoreListeners.add(onLkScore)
+        sampler.start()
         WakeWord.ensureRunning(this) // the launcher pattern: revive the service whenever visible
         render()
         refreshLog()
@@ -128,22 +170,32 @@ class MainActivity : Activity() {
         WakeWord.removeMeterListener(onMeter) // metering stops when nobody is watching
         app.davoice.stateListeners.remove(onDaVoiceState)
         app.davoice.detectionListeners.remove(onDaVoiceDetect)
+        app.livekit.stateListeners.remove(onLkState)
+        app.livekit.detectionListeners.remove(onLkDetect)
+        app.livekit.scoreListeners.remove(onLkScore)
+        sampler.stop()
         super.onPause()
     }
 
     // ---- actions ------------------------------------------------------------
 
-    private fun running() = WakeWord.isEnabled(this) || app.davoice.isActive
+    private fun running() = WakeWord.isEnabled(this) || app.davoice.isActive || app.livekit.isActive
 
     private fun onStartStop() {
         if (running()) {
             WakeWord.stop(this)
             app.davoice.stop()
+            app.livekit.stop()
             render()
             return
         }
         when (engine) {
             Engine.OPEN_VOCAB -> if (!validate()) return
+            Engine.LIVEKIT -> if (lkModelIds[lkModelGroup.checkedRadioButtonId] == null) {
+                status.text = "No LiveKit models in this build — run fetch_livekit.sh and rebuild"
+                status.setTextColor(red)
+                return
+            }
             Engine.DAVOICE -> {
                 if (selectedModel() == null) return
                 if (licence.text.isBlank()) {
@@ -190,6 +242,11 @@ class MainActivity : Activity() {
                 p.putString(DemoApp.PREF_DV_MODEL, model).putString(DemoApp.PREF_DV_LICENCE, key).apply()
                 app.davoice.start(model, if (sensitive.isChecked) DaVoiceEngine.SENSITIVE else DaVoiceEngine.NORMAL, key)
             }
+            Engine.LIVEKIT -> {
+                val model = lkModelIds[lkModelGroup.checkedRadioButtonId] ?: return
+                p.putString(DemoApp.PREF_LK_MODEL, model).apply()
+                app.livekit.start(model, if (sensitive.isChecked) LiveKitEngine.SENSITIVE else LiveKitEngine.NORMAL)
+            }
         }
         render()
     }
@@ -216,16 +273,25 @@ class MainActivity : Activity() {
         // While listening, show the engine that's actually running.
         if (WakeWord.isEnabled(this)) openVocabRadio.isChecked = true
         if (app.davoice.isActive) davoiceRadio.isChecked = true
-        val dv = engine == Engine.DAVOICE
-        openVocabSection.visibility = if (dv) View.GONE else View.VISIBLE
+        if (app.livekit.isActive) livekitRadio.isChecked = true
+        val e = engine
+        val dv = e == Engine.DAVOICE
+        val lk = e == Engine.LIVEKIT
+        openVocabSection.visibility = if (e == Engine.OPEN_VOCAB) View.VISIBLE else View.GONE
         davoiceSection.visibility = if (dv) View.VISIBLE else View.GONE
-        meterSection.visibility = if (dv) View.GONE else View.VISIBLE
-        normal.text = if (dv) "Normal (${DaVoiceEngine.NORMAL})" else "Normal"
-        sensitive.text = if (dv) "Sensitive (${DaVoiceEngine.SENSITIVE})" else "Sensitive"
+        livekitSection.visibility = if (lk) View.VISIBLE else View.GONE
+        meterSection.visibility = if (dv) View.GONE else View.VISIBLE // DaVoice's SDK owns the mic: no level to show
+        if (!busy) { onMeter.onMeter(WakeWord.Meter(-90f, false)); lkBar.progress = 0 }
+        normal.text = when (e) { Engine.DAVOICE -> "Normal (${DaVoiceEngine.NORMAL})"; Engine.LIVEKIT -> "Normal (${LiveKitEngine.NORMAL})"; else -> "Normal" }
+        sensitive.text = when (e) { Engine.DAVOICE -> "Sensitive (${DaVoiceEngine.SENSITIVE})"; Engine.LIVEKIT -> "Sensitive (${LiveKitEngine.SENSITIVE})"; else -> "Sensitive" }
         startStop.text = if (busy) "Stop" else "Start listening"
-        for (v in listOf(openVocabRadio, davoiceRadio, keyword, licence, normal, sensitive)) v.isEnabled = !busy
-        for (i in 0 until modelGroup.childCount) modelGroup.getChildAt(i).isEnabled = !busy
-        if (dv) renderDaVoice(app.davoice.state) else renderOpenVocab(WakeWord.state)
+        for (v in listOf(openVocabRadio, davoiceRadio, livekitRadio, keyword, licence, normal, sensitive)) v.isEnabled = !busy
+        for (g in listOf(modelGroup, lkModelGroup)) for (i in 0 until g.childCount) g.getChildAt(i).isEnabled = !busy
+        when (e) {
+            Engine.DAVOICE -> renderDaVoice(app.davoice.state)
+            Engine.LIVEKIT -> renderLiveKit(app.livekit.state)
+            else -> renderOpenVocab(WakeWord.state)
+        }
     }
 
     private fun renderOpenVocab(s: WakeWord.State) {
@@ -259,6 +325,18 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun renderLiveKit(s: LiveKitEngine.State) {
+        when (s) {
+            is LiveKitEngine.State.Listening -> {
+                status.text = "Listening for \"${LiveKitEngine.label(s.model)}\" (threshold ${s.threshold}) — works with the screen off too"
+                status.setTextColor(green)
+            }
+            LiveKitEngine.State.Starting -> { status.text = "Starting…"; status.setTextColor(amber) }
+            LiveKitEngine.State.Stopped -> { status.text = "Stopped"; status.setTextColor(dim); lkScore.text = "" }
+            is LiveKitEngine.State.Error -> { status.text = "Error: ${s.message}"; status.setTextColor(red) }
+        }
+    }
+
     private fun showDetection(phrase: String) {
         sessionCount++
         val time = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date())
@@ -288,7 +366,7 @@ class MainActivity : Activity() {
             "No detections yet."
         } else {
             events.asReversed().joinToString("\n") {
-                "${fmt.format(Date(it.wallTimeMs))}  ${if (it.engine == Engine.DAVOICE) "DV" else "OV"}  ${it.phrase}"
+                "${fmt.format(Date(it.wallTimeMs))}  ${when (it.engine) { Engine.DAVOICE -> "DV"; Engine.LIVEKIT -> "LK"; else -> "OV" }}  ${it.phrase}"
             }
         }
     }
@@ -316,7 +394,8 @@ class MainActivity : Activity() {
         engineGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         openVocabRadio = RadioButton(this).apply { text = Engine.OPEN_VOCAB.label; setTextColor(fg); id = View.generateViewId() }
         davoiceRadio = RadioButton(this).apply { text = Engine.DAVOICE.label; setTextColor(fg); id = View.generateViewId() }
-        engineGroup.addView(openVocabRadio); engineGroup.addView(davoiceRadio)
+        livekitRadio = RadioButton(this).apply { text = Engine.LIVEKIT.label; setTextColor(fg); id = View.generateViewId() }
+        engineGroup.addView(openVocabRadio); engineGroup.addView(davoiceRadio); engineGroup.addView(livekitRadio)
         col.addView(engineGroup)
         col.addView(gap(12))
 
@@ -363,6 +442,26 @@ class MainActivity : Activity() {
         }
         davoiceSection.addView(licence, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         col.addView(davoiceSection)
+
+        livekitSection = section()
+        livekitSection.addView(label("Phrase (one trained classifier per phrase)"))
+        lkModelGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val lkModels = app.livekit.models()
+        for (m in lkModels) {
+            val rb = RadioButton(this).apply { text = LiveKitEngine.label(m); setTextColor(fg); id = View.generateViewId() }
+            lkModelIds[rb.id] = m
+            lkModelGroup.addView(rb)
+        }
+        livekitSection.addView(lkModelGroup)
+        if (lkModels.isEmpty()) livekitSection.addView(label("No LiveKit models in this build — run fetch_livekit.sh and rebuild.", 13f, red))
+        livekitSection.addView(label("Other phrases: train one with livekit-wakeword, put the .onnx in android/livekit-models/ and rebuild.", 12f))
+        lkScore = label("", 13f, fg).apply { typeface = Typeface.MONOSPACE }
+        livekitSection.addView(gap(8))
+        livekitSection.addView(label("Score (threshold: 0.5 normal, 0.3 sensitive)", 12f))
+        lkBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        livekitSection.addView(lkBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        livekitSection.addView(lkScore)
+        col.addView(livekitSection)
         col.addView(gap(12))
 
         val radios = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
@@ -396,6 +495,13 @@ class MainActivity : Activity() {
         meterSection.addView(gap(16))
         col.addView(meterSection)
 
+        col.addView(label("Live stats (whole app, all engines)", 12f))
+        cpuBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        col.addView(cpuBar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        statsText = label("", 13f, fg).apply { typeface = Typeface.MONOSPACE }
+        col.addView(statsText)
+        col.addView(gap(16))
+
         panel = label("Say your phrase…", 22f, fg, bold = true).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.rgb(32, 32, 36)) }
@@ -408,7 +514,7 @@ class MainActivity : Activity() {
         col.addView(gap(16))
         counter = label("0 detections this session", 14f, fg, bold = true)
         col.addView(counter)
-        col.addView(label("Recent, both engines (OV = open vocabulary, DV = DaVoice)", 12f))
+        col.addView(label("Recent, all engines (OV = open vocabulary, DV = DaVoice, LK = LiveKit)", 12f))
         log = label("", 14f, fg).apply { typeface = Typeface.MONOSPACE }
         col.addView(log)
 

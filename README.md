@@ -87,6 +87,16 @@ and checksum-verified by `fetch_davoice.sh`). DaVoice uses **one trained model p
 approach suggested above for far-field use, so QA can compare both engines on one phone. Only one
 engine listens at a time, since both need the mic. The detection log tags each hit `OV` or `DV`.
 
+The demo app has a third engine, **LiveKit** ([livekit-wakeword](https://github.com/livekit/livekit-wakeword),
+Apache-2.0, models pinned and checksum-verified by `fetch_livekit.sh`, tagged `LK`). It is a Kotlin port of
+their pipeline (2 s window -> mel -> 16 embeddings -> per-phrase classifier) on the ONNX Runtime that ships
+inside the DaVoice AAR. Only "hey livekit" is pre-trained; other phrases need a classifier trained with
+`livekit-wakeword` (drop the `.onnx` in `android/livekit-models/`). It is deliberately **raw**: no VAD gate,
+no AGC, one inference pass per 80 ms. On a Galaxy S24+ that measured 34 ms/pass and ~107% of one core
+(so it is not battery-viable ungated), and 3 of 3 close-range "hey livekit" utterances fired at scores
+0.60-0.76. Distance and false-alarm behaviour are not measured yet. The app's live stats panel (CPU, memory,
+battery temperature/current, mic level, LiveKit score) works with all three engines.
+
 - **Licence:** DaVoice won't listen without a key from DaVoice (info@davoice.io). Paste it into the
   app, or set the `DAVOICE_LICENSE` repo secret so CI bakes in a default. A baked-in key can be
   extracted from the APK, so use an evaluation key. Keys encode their expiry: the base64 part
@@ -215,7 +225,7 @@ The tests use committed WAV fixtures for that reason.
 ```bash
 cd android/wakeword-core && gradle test                    # JVM, no Android SDK needed
 cd android/verify && ./prepare.sh && gradle compileKotlin  # type-check the Android module
-cd android && ./fetch_models.sh && ./fetch_davoice.sh && ./gradlew :demo-app:assembleDebug   # Android SDK + patchelf
+cd android && ./fetch_models.sh && ./fetch_davoice.sh && ./fetch_livekit.sh && ./gradlew :demo-app:assembleDebug   # Android SDK + patchelf
 ```
 
 ## Design notes

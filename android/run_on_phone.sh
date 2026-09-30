@@ -57,6 +57,7 @@ if [ -z "$apk" ]; then
     echo "building APK locally"
     ./fetch_models.sh
     ./fetch_davoice.sh
+    ./fetch_livekit.sh
     ./gradlew ":$MODULE:assembleDebug" --console=plain
     apk=$MODULE/build/outputs/apk/debug/$MODULE-debug.apk
   else

@@ -1,5 +1,5 @@
 // Standalone QA app: the open-vocabulary engine plus the DaVoice SDK, switchable. Install on a phone:
-//   ../fetch_models.sh && ../fetch_davoice.sh && ../gradlew :demo-app:installDebug
+//   ../fetch_models.sh && ../fetch_davoice.sh && ../fetch_livekit.sh && ../gradlew :demo-app:installDebug
 // DaVoice licence key: paste it in the app, or bake a default in with -PdavoiceLicense=... / $DAVOICE_LICENSE.
 plugins {
     id("com.android.application")
