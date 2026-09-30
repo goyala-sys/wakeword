@@ -85,6 +85,7 @@ class DaVoiceEngine(private val context: Context) {
         detector = null
         runCatching { d.stopListening() }
         runCatching { d.stopForegroundService() }
+        runCatching { d.close() } // each start builds a new detector; without this every one stayed in memory
         Log.i(TAG, "stopped")
     }
 

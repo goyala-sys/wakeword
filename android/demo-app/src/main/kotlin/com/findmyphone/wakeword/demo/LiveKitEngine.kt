@@ -212,6 +212,7 @@ class LiveKitEngine(private val context: Context) {
                     for (i in 0 until n) { val v = frame[i] / 32768.0; sum += v * v }
                     val levelDb = (20 * kotlin.math.log10(kotlin.math.sqrt(sum / n) + 1e-9)).toFloat().coerceAtLeast(-90f)
                     val s = Score(score, peak, inferTotalMs.toFloat() / passes, levelDb)
+                    Log.d(TAG, "score %.3f peak %.3f level %.0f dB".format(score, peak, levelDb)) // for distance tests
                     main.post { for (l in scoreListeners) l(s) }
                 }
                 if (score >= threshold && now - lastDetectMs > DEBOUNCE_MS) {
