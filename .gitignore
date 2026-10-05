@@ -16,3 +16,5 @@ android/local-maven/
 # DaVoice SDK + models (fetch_davoice.sh) and custom models from DaVoice: licensed, not ours to publish
 android/demo-app/src/main/assets/
 android/davoice-models/
+# VoxRT SDK + model (fetch_voxrt.sh): licence allows bundling in an app, not redistributing on their own
+android/voxrt-demo/vendor/

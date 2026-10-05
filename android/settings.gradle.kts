@@ -23,3 +23,4 @@ rootProject.name = "wakeword"
 includeBuild("wakeword-core")
 include(":wakeword-android")
 include(":demo-app")
+include(":voxrt-demo")

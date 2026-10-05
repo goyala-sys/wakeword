@@ -115,6 +115,25 @@ battery temperature/current, mic level, LiveKit score) works with all three engi
 - DaVoice ships arm64 native code only, so on 32-bit phones the DaVoice engine shows a load error.
   The open-vocabulary engine still works there.
 
+## VoxRT (separate app)
+
+`android/voxrt-demo` is a separate test app ("Wake Word Test (VoxRT)", installs alongside the QA app) for
+[VoxRT](https://voxrt.com) ([VoxRT/voxrt-wake-word-android](https://github.com/VoxRT/voxrt-wake-word-android)).
+VoxRT is a custom Rust runtime with no ONNX Runtime, about 600 KB with its ~100 KB model. It needs no licence key.
+
+- **Phrase:** the free model detects **"Hey Assistant" only**. Custom phrases are a paid VoxRT service
+  (help@voxrt.com).
+- **Licences:** the Kotlin wrapper is Apache-2.0. The runtime `.so` and the `.vxrt` model are proprietary:
+  you may bundle them unmodified in an app (including commercial apps, no fees), but not
+  redistribute them on their own or reverse-engineer them. So `fetch_voxrt.sh` downloads them from VoxRT's
+  official repos into `android/voxrt-demo/vendor/` (gitignored), pinned and checksum-verified. They
+  are never committed.
+- **Settings:** threshold Normal 0.90 (VoxRT's default) or Sensitive 0.85. Mic source is Voice
+  recognition (what our engines use) or Mic (VoxRT's example). There's a live score bar.
+- **Logs** (tag `VoxrtDemo`): each detection with its score and mic level, a once-a-second peak score
+  while there's sound (to tell a near-miss from not hearing), and inference time every 30 s.
+- **Run it:** `android/run_on_phone.sh --voxrt` (CI artifact `voxrt-demo-apk`).
+
 ## Quick start (desktop)
 
 ```bash

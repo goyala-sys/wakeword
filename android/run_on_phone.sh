@@ -3,6 +3,7 @@
 #
 #   ./run_on_phone.sh                 # latest CI-built APK (needs `gh`), else builds locally
 #   ./run_on_phone.sh path/to.apk     # a specific APK
+#   ./run_on_phone.sh --voxrt [apk]   # the separate VoxRT test app (:voxrt-demo)
 #   ANDROID_SERIAL=XYZ ./run_on_phone.sh   # pick a device when several are connected
 #
 # Needs: adb (Android platform-tools). Optional: gh (GitHub CLI, logged in) or an Android SDK.
@@ -12,6 +13,14 @@ cd "$(dirname "$0")"
 PKG=com.findmyphone.wakeword.demo
 ARTIFACT=wakeword-demo-apk
 MODULE=demo-app
+LOG_TAGS="WakeWordService:V DaVoiceDemo:V LiveKitDemo:V"
+if [ "${1:-}" = "--voxrt" ]; then
+  shift
+  PKG=com.findmyphone.wakeword.voxrt
+  ARTIFACT=voxrt-demo-apk
+  MODULE=voxrt-demo
+  LOG_TAGS="VoxrtDemo:V"
+fi
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -55,9 +64,11 @@ fi
 if [ -z "$apk" ]; then
   if [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ] || [ -f local.properties ]; then
     echo "building APK locally"
-    ./fetch_models.sh
-    ./fetch_davoice.sh
-    ./fetch_livekit.sh
+    if [ "$MODULE" = voxrt-demo ]; then
+      ./fetch_voxrt.sh
+    else
+      ./fetch_models.sh && ./fetch_davoice.sh && ./fetch_livekit.sh
+    fi
     ./gradlew ":$MODULE:assembleDebug" --console=plain
     apk=$MODULE/build/outputs/apk/debug/$MODULE-debug.apk
   else
@@ -83,9 +94,13 @@ echo "$out" | tail -1
 adb logcat -c
 adb shell am start -n "$PKG/.MainActivity" >/dev/null
 echo
-echo "App launched. Pick an engine and a phrase, tap 'Start listening', then speak."
+if [ "$MODULE" = voxrt-demo ]; then
+  echo "App launched. Tap 'Start listening', then say \"Hey Assistant\"."
+else
+  echo "App launched. Pick an engine and a phrase, tap 'Start listening', then speak."
+fi
 echo "Detections and errors stream below (Ctrl-C to stop watching; the app keeps running)."
 echo "---------------------------------------------------------------------------------"
 
 # ---- 4. watch --------------------------------------------------------------------
-adb logcat -v time -s WakeWordService:V DaVoiceDemo:V AndroidRuntime:E
+adb logcat -v time -s $LOG_TAGS AndroidRuntime:E

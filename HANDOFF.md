@@ -34,12 +34,20 @@ temperature/current, mic level and (LiveKit) score.
 | **DaVoice** (`DV`) | Commercial SDK, one trained model per fixed phrase | Demo models only: "hey lookdeep", "need help now", "coca cola" | Works in the combined app. Licence accepted, detections fire. 12 detections across the 3 demo phrases in one session. Hit rate and distance not measured (log only shows hits). |
 | **LiveKit** (`LK`) | livekit-wakeword pipeline ported to Kotlin | "hey livekit" only (pre-trained) | 3 of 3 close-range hits at score 0.60-0.76. ~34 ms/pass, ~107% of one core because it's ungated (no VAD), so not battery-viable as is. Distance and false alarms not measured. |
 
+### Separate app: VoxRT (`android/voxrt-demo`, artifact `voxrt-demo-apk`)
+
+A fourth candidate. It's a separate APK because that was requested, not because of a clash: VoxRT has its
+own Rust runtime and no ORT. It detects "Hey Assistant" only (custom phrases are paid), with no licence
+key. The SDK and model are fetched into `voxrt-demo/vendor/` (gitignored, licence forbids
+redistribution on their own). Run with `run_on_phone.sh --voxrt`. Logs are under `VoxrtDemo`.
+**Not yet run on the phone.**
+
 ## Things that will bite you
 
 - **Pushing to the fork doesn't start CI.** Trigger it by hand:
   `gh workflow run build --repo goyala-sys/wakeword --ref claude/epic-newton-ncmg8k`.
-  `99af966` (the DaVoice leak fix and LiveKit logging) has **not been built by CI yet**. The last
-  built commit is `c4f7557`.
+  `99af966` (the DaVoice leak fix) was built in run 37276698556 (all green), but it hasn't been
+  checked on the phone yet.
 - **There's no Android SDK on the dev Mac,** and Gradle can't download its distribution through the
   office network. CI is the only Android build. Python (via the internal PyPI mirror) and `kotlinc`
   work locally for the pure-Kotlin core.
@@ -82,8 +90,8 @@ Python engine and simulations (`python/`): `python -m pytest`, `python -m eval.d
 
 ## Open items, roughly in priority order
 
-1. **Build `99af966` in CI** and check the DaVoice memory fix on the phone (idle memory should level
-   off at ~222 MB).
+1. **Check the DaVoice memory fix on the phone** (built in CI; idle memory should level off at
+   ~222 MB).
 2. **Re-check the Open vocabulary engine in the three-engine build.** It hasn't been run since the ORT
    rename.
 3. **Run a proper distance test of all three engines:** 10 tries each at 1 / 2 / 4 m and the next
